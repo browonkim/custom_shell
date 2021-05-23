@@ -9,7 +9,7 @@
 #include <errno.h>
 
 //debug option
-//#define DEBUG
+#define DEBUG
 #define ERRNO_CHECK
 
 //constant
@@ -40,8 +40,8 @@ typedef int todo;
 void get_command(char *buffer, size_t bufferSize);
 void parsing_pipe(char *buffer, char **list, int *listSize);
 void tokenizeCommand(char *buffer, char **list, int *listSize);
-void parsing_command(char* command, char** list);
-void run_command();
+void split_command(char* command, char** list);
+void run_command(char** list, int option, int w_fd, int r_fd);
 void pop_pipe(char **pipeQueue, int queueSize);
 void clear_list(char **list);
 void error(int errorFlag);
@@ -165,20 +165,22 @@ void pop_pipe(char **pipeQueue, int queueSize){
     {
         if(i == 0 && (i+1) == queueSize)
         {
-            pipe(fdList[i]);//no pipe. just run
-            run_command(list[i]); //no pipe
+            //no pipe. just run
+            run_command(list[i], 0, -1, -1); //no pipe
         }
         else if(i == 0 && (i+1) < queueSize)
         {
-            run_command(list[i]); //just write pipe
+            pipe(fdList[i]);
+            run_command(list[i], 1, fdList[i][0], -1); //just write pipe
         }
         else if((i+1) == queueSize)
         {
-            run_command(list[i]); //just read Pipe
+            run_command(list[i], 2, -1, fdList[i-1][1]); //just read Pipe
         }
         else if((i+1) < queueSize)
         {
-            run_command(list[i]); //read Pipe and write Pipe
+            pipe(fdList[i]);
+            run_command(list[i], 3, fdList[i][0], fdList[i-1][1]); //read Pipe and write Pipe
         }
     }
     for(i=0;i<32;i++)
@@ -216,8 +218,23 @@ void split_command(char* command, char **list)
 #endif
 }
 
-void run_command(char** list)
+void run_command(char** list, int option, int w_fd, int r_fd)
 {
+    switch(option)
+    {
+        case 0:
+            //no action
+            break;
+        case 1:
+            //output만 옮겨주기
+            break;
+        case 2:
+            //input만 받아오기
+            break;
+        case 3:
+            //input받아오고 output도 옮겨주기
+            break;
+    }
     int i = 0;
     while(list[i] != NULL)
     {
@@ -248,16 +265,15 @@ void run_command(char** list)
         }
         i++;
     }
-
     pid_t pid;
     if((pid = fork()) == 0)
     {
-        if(execv(list[0],list) < 0)
+        if(execvp(list[0],list) < 0)
         {
 #ifdef ERRNO_CHECK            
             fprintf(stderr, "%s\n", strerror(errno));
 #endif
-            fprintf(stderr, "myshell: %s: command not found\n", list[i]);
+            fprintf(stderr, "myshell: %s: command not found\n", list[0]);
             exit(0);
         }
     }
