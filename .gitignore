@@ -1,3 +1,11 @@
+#
+*
+*.*
+!myshell.c 
+!README.md 
+!.gitignore
+!TODO
+
 # Prerequisites
 *.d
 
