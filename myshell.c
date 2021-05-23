@@ -34,10 +34,12 @@ typedef int todo;
 void getCommand(char *buffer, size_t bufferSize);
 void parsing_pipe(char *buffer, char **list, int *listSize);
 void tokenizeCommand(char *buffer, char **list, int *listSize);
-void parsing_command();
+void parsing_command(char* command, char** list);
 void run_command();
-void clearList(char **list, int listSize);
+void pop_pipe(char **pipeQueue, int queueSize);
+void clearList(char **list);
 void error(int errorFlag);
+
 int main()
 {
     char commandBuffer[BufferSize];
@@ -49,27 +51,18 @@ int main()
     memset(pipeQueue, 0, commonSize);
     int pipeSize = 0;
 
-    char **list = (char **)malloc(commonSize);
-    memset(list, 0, commonSize);
-    int listSize = 0;
-
     int i = 0;
 
     while (infinite)
     {
-        listSize = 0;
         memset(commandBuffer, '\0', commandBufSize);
         printf("$ ");
         getCommand(commandBuffer, commandBufSize);
         parsing_pipe(commandBuffer, pipeQueue, &pipeSize);
-        //pipe각각의 원소들에 대해 parsing & // > >> n> < <0 &> &>> >& >>& 처리해주기
-        //dup2써서 redirection구현
-        //마지막으로 "&" 있는지 체크해서 background fork 구현하기
-        //그 후 foreground fork 구현하기
-        clearList(list, listSize);
-        clearList(pipeQueue, pipeSize);
+        pop_pipe(pipeQueue, pipeSize);
+        clearList(pipeQueue);
     }
-    free(list);
+    free(pipeQueue);
 }
 
 void getCommand(char *buffer, size_t bufferSize)
@@ -93,6 +86,7 @@ void getCommand(char *buffer, size_t bufferSize)
 
 void tokenizeCommand(char *buffer, char **list, int *listSize)
 {
+    int i;
     char *token = strtok(buffer, " \n");
     *listSize = 0;
     while (token != NULL)
@@ -113,13 +107,14 @@ void tokenizeCommand(char *buffer, char **list, int *listSize)
 #endif
 }
 
-void clearList(char **list, int listSize)
+void clearList(char **list)
 {
     int i = 0;
-    for (i = 0; i < listSize; i++)
+    while(list[i] != NULL)
     {
         free(list[i]);
         list[i] = NULL;
+        i++;
     }
 }
 
@@ -145,10 +140,13 @@ void parsing_pipe(char *buffer, char **pipeQueue, int *queueSize)
 #endif
 }
 
-void popPipe(char **pipeQueue, int queueSize){
+void pop_pipe(char **pipeQueue, int queueSize){
     int i;
     int fdList[MAXSTRING][2];
     int until = queueSize - 1;
+    char* list[32][32]= {{NULL,}};
+    char** listPointer = NULL;
+
     for(i=0;i<until;i++)
     {
         if(pipe(fdList[i]) < 0)
@@ -157,27 +155,73 @@ void popPipe(char **pipeQueue, int queueSize){
     for(i=0;i<queueSize;i++)
     {
         //char *** list = [a["","","",""] | b["","","",""] | c["","","",""], ...]
-        parsing_command();
+        listPointer = list[i];
+        parsing_command(pipeQueue[i], list[i]);
     }
     for(i=0;i<queueSize;i++)
     {
         if(i == 0 && (i+1) == queueSize)
         {
             //no pipe. just run
-            run_command(); //no pipe
+            run_command(list[i]); //no pipe
         }
         else if(i == 0 && (i+1) < queueSize)
         {
-            run_command(); //just write pipe
+            run_command(list[i]); //just write pipe
         }
         else if((i+1) == queueSize)
         {
-            run_command(); //just read Pipe
+            run_command(list[i]); //just read Pipe
         }
         else if((i+1) < queueSize)
         {
-            run_command(); //read Pipe and write Pipe
+            run_command(list[i]); //read Pipe and write Pipe
         }
+    }
+    for(i=0;i<32;i++)
+    {
+        if(list[i] == NULL)
+            break;
+        clearList(list[i]);
+    }
+}
+
+void parsing_command(char* command, char **list)
+{
+    int i = 0;
+    char* token = strtok(command, " \n");
+    while(token != NULL)
+    {
+        list[i] = (char*)malloc(sizeof(char)*strlen(token));
+        strcpy(list[i],token);
+        i++;
+        token = strtok(NULL, " \n");
+    }
+    list[i] = NULL;
+#ifdef DEBUG
+    i = 0;
+    while(list[i] != NULL)
+    {
+        printf("[ %s ] ", list[i]);
+        i++;
+    }
+    printf("\n");
+#endif
+}
+
+void run_command(char** list)
+{
+    pid_t pid;
+    if((pid = fork()) == 0)
+    {
+        execv(list[0],list);
+        fprintf(stderr, "myshell: error!\n");
+        exit(0);
+    }
+    else
+    {
+        int status, waitPid;
+        waitPid = wait(&status);
     }
 }
 
