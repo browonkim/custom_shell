@@ -21,7 +21,6 @@
 #define PIPE_FUN_ERROR 400
 #define MALLOC_ALLOCATION_ERROR 401
 
-
 enum boolean
 {
     False = 0,
@@ -40,8 +39,8 @@ typedef int todo;
 void get_command(char *buffer, size_t bufferSize);
 void parsing_pipe(char *buffer, char **list, int *listSize);
 void tokenizeCommand(char *buffer, char **list, int *listSize);
-void split_command(char* command, char** list);
-void run_command(char** list, int option, int w_fd, int r_fd);
+void split_command(char *command, char **list);
+void run_command(char **list, int option, int w_fd, int r_fd);
 void pop_pipe(char **pipeQueue, int queueSize);
 void clear_list(char **list);
 void error(int errorFlag);
@@ -116,7 +115,7 @@ void tokenizeCommand(char *buffer, char **list, int *listSize)
 void clear_list(char **list)
 {
     int i = 0;
-    while(list[i] != NULL)
+    while (list[i] != NULL)
     {
         free(list[i]);
         list[i] = NULL;
@@ -141,75 +140,78 @@ void parsing_pipe(char *buffer, char **pipeQueue, int *queueSize)
 #ifdef DEBUG
     for (i = 0; i < (*queueSize); i++)
     {
-        printf("%d) pipe: %s | \n",i+1, pipeQueue[i]);
+        printf("%d) pipe: %s | \n", i + 1, pipeQueue[i]);
     }
 #endif
 }
 
-void pop_pipe(char **pipeQueue, int queueSize){
+void pop_pipe(char **pipeQueue, int queueSize)
+{
     int i;
     int fdList[MAXSTRING][2];
     int until = queueSize - 1;
-    char* list[32][32]= {{NULL,}};
-    for(i=0;i<until;i++)
+    char *list[32][32] = {{
+        NULL,
+    }};
+    for (i = 0; i < until; i++)
     {
-        if(pipe(fdList[i]) < 0)
+        if (pipe(fdList[i]) < 0)
             error(PIPE_FUN_ERROR);
     }
-    for(i=0;i<queueSize;i++)
+    for (i = 0; i < queueSize; i++)
     {
         //char *** list = [a["","","",""] | b["","","",""] | c["","","",""], ...]
         split_command(pipeQueue[i], list[i]);
     }
-    for(i=0;i<queueSize;i++)
+    for (i = 0; i < queueSize; i++)
     {
-        if(i == 0 && (i+1) == queueSize)
+        if (i == 0 && (i + 1) == queueSize)
         {
             //no pipe. just run
             run_command(list[i], 0, -1, -1); //no pipe
         }
-        else if(i == 0 && (i+1) < queueSize)
+        else if (i == 0 && (i + 1) < queueSize)
         {
             pipe(fdList[i]);
             run_command(list[i], 1, fdList[i][0], -1); //just write pipe
         }
-        else if((i+1) == queueSize)
+        else if ((i + 1) == queueSize)
         {
-            run_command(list[i], 2, -1, fdList[i-1][1]); //just read Pipe
+            run_command(list[i], 2, -1, fdList[i - 1][1]); //just read Pipe
         }
-        else if((i+1) < queueSize)
+        else if ((i + 1) < queueSize)
         {
             pipe(fdList[i]);
-            run_command(list[i], 3, fdList[i][0], fdList[i-1][1]); //read Pipe and write Pipe
+            run_command(list[i], 3, fdList[i][0], fdList[i - 1][1]); //read Pipe and write Pipe
         }
     }
-    for(i=0;i<32;i++)
+    for (i = 0; i < 32; i++)
     {
-        if(list[i] == NULL)
+        if (list[i] == NULL)
             break;
         clear_list(list[i]);
     }
 }
 
-void split_command(char* command, char **list)
+void split_command(char *command, char **list)
 {
     int i = 0;
-    char* token = strtok(command, " \n");
-    while(token != NULL)
+    char *token = strtok(command, " \n");
+    while (token != NULL)
     {
-        list[i] = (char*)malloc(sizeof(char)*strlen(token));
-        if(list[i] == NULL)
+        list[i] = (char *)malloc(sizeof(char) * strlen(token));
+        if (list[i] == NULL)
         {
             error(MALLOC_ALLOCATION_ERROR);
         }
-        strcpy(list[i],token);
+        strcpy(list[i], token);
         i++;
         token = strtok(NULL, " \n");
     }
     list[i] = NULL;
 #ifdef DEBUG
     i = 0;
-    while(list[i] != NULL)
+    while (list[i] != NULL)
     {
         printf("[ %s ] ", list[i]);
         i++;
@@ -218,46 +220,31 @@ void split_command(char* command, char **list)
 #endif
 }
 
-void run_command(char** list, int option, int w_fd, int r_fd)
+void run_command(char **list, int option, int w_fd, int r_fd)
 {
-    switch(option)
-    {
-        case 0:
-            //no action
-            break;
-        case 1:
-            //output만 옮겨주기
-            break;
-        case 2:
-            //input만 받아오기
-            break;
-        case 3:
-            //input받아오고 output도 옮겨주기
-            break;
-    }
     int i = 0;
-    while(list[i] != NULL)
+    while (list[i] != NULL)
     {
         int j = 0;
         char c;
-        while((c=list[i][j]) != '\0')
+        while ((c = list[i][j]) != '\0')
         {
-            if(c == '<')
+            if (c == '<')
             {
-                // < 
+                // <
                 // <0
             }
-            else if(c == '>')
+            else if (c == '>')
             {
                 //> 만약 뒤에 원소가 있다면 output redirection 구현하기
                 //&> error redirection 이랑 output redirection 이랑 같은것을 가르키기
                 //2> error 를 리디렉션해주기
                 //>& &>랑 똑같이 구현해주기
                 //>> 이어쓰기
-                //&n> 
+                //&n>
                 //>&n
             }
-            else if(c == '&')
+            else if (c == '&')
             {
                 // & 만 허용됨 string전체가 &여야만함
             }
@@ -265,12 +252,27 @@ void run_command(char** list, int option, int w_fd, int r_fd)
         }
         i++;
     }
-    pid_t pid;
-    if((pid = fork()) == 0)
+    switch (option)
     {
-        if(execvp(list[0],list) < 0)
+    case 0:
+        //no action
+        break;
+    case 1:
+        //output만 옮겨주기
+        break;
+    case 2:
+        //input만 받아오기
+        break;
+    case 3:
+        //input받아오고 output도 옮겨주기
+        break;
+    }
+    pid_t pid;
+    if ((pid = fork()) == 0)
+    {
+        if (execvp(list[0], list) < 0)
         {
-#ifdef ERRNO_CHECK            
+#ifdef ERRNO_CHECK
             fprintf(stderr, "%s\n", strerror(errno));
 #endif
             fprintf(stderr, "myshell: %s: command not found\n", list[0]);
@@ -286,17 +288,18 @@ void run_command(char** list, int option, int w_fd, int r_fd)
 
 void error(int errorFlag)
 {
-    switch(errorFlag){
-        case PIPE_FUN_ERROR:
-            fprintf(stderr, "myshell: pipe creation error!\n");
-            exit(3);
-            break;
-        case MALLOC_ALLOCATION_ERROR:
-            fprintf(stderr, "myshell: fatal! memory allocation error!\n");
-            exit(4);
-            break;
-        default:
-            fprintf(stderr, "myshell: unknown error!\n");
-            exit(4);
+    switch (errorFlag)
+    {
+    case PIPE_FUN_ERROR:
+        fprintf(stderr, "myshell: pipe creation error!\n");
+        exit(3);
+        break;
+    case MALLOC_ALLOCATION_ERROR:
+        fprintf(stderr, "myshell: fatal! memory allocation error!\n");
+        exit(4);
+        break;
+    default:
+        fprintf(stderr, "myshell: unknown error!\n");
+        exit(5);
     }
 }
