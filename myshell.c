@@ -10,9 +10,8 @@
 #include <fcntl.h>
 
 //debug option
-#define DEBUG
-#define ERRNO_CHECK
-
+//#define DEBUG
+#define _CRT_SECURE_NO_WARNINGS
 //constant
 #define infinite 1
 #define BufferSize 1024
@@ -24,11 +23,9 @@
 #define FORK_ERROR 402
 //run Flag
 #define NO_PIPE 200
-#define ONE_PIPE_BEGIN 201
-#define ONE_PIPE_END 202
-#define MUL_PIPE_BEGIN 203
-#define MUL_PIPE_MID 204
-#define MUL_PIPE_END 205
+#define PIPE_BEGIN 201
+#define PIPE_END 202
+#define PIPE_MID 203
 
 //option Flag
 #define NO_STRING_RETURN_NULL 0
@@ -74,12 +71,12 @@ void todo()
 
 //functions
 int syntax_error(char *string);
-void exception_cleanse(char** list, int listSize);
+void exception_cleanse(char **list, int listSize);
 void get_command(char *buffer, size_t bufferSize);
 void split_pipe(char *buffer, char **list, int *listSize);
 void tokenizeCommand(char *buffer, char **list, int *listSize);
 void split_command(char *command, char **list, int *listSize);
-int run_command(char **list);
+int run_command(char **list, int flag);
 void parse_command();
 void pop_pipe(char **pipeQueue, int queueSize);
 void execute_command(char **list, char option);
@@ -172,7 +169,7 @@ void split_pipe(char *buffer, char **pipeQueue, int *queueSize)
 #ifdef DEBUG
     for (i = 0; i < (*queueSize); i++)
     {
-        printf("%d) pipe: %s | \n", i + 1, pipeQueue[i]);
+        printf("%d) pipe: %s\n", i + 1, pipeQueue[i]);
     }
 #endif
 }
@@ -213,9 +210,30 @@ void pop_pipe(char **pipeQueue, int queueSize)
         //일단 non emplementation이라고 하고 return 시켜버리기
         //즉 어떤 경우에도 listSize는 공백이 아닌 어떤 문자를 가지고 있어야한다는 뜻
     }
-    for( i = 0; i < queueSize ; i++)
-    {   
-        run_command(list[i]);
+    switch (queueSize)
+    {
+    case 0:
+        break;
+    case 1:
+        run_command(list[0], NO_PIPE);
+        break;
+    default:
+        for (i = 0; i < queueSize; i++)
+        {
+            if (i == 0)
+            {
+                run_command(list[i], PIPE_BEGIN);
+            }
+            else if ((i + 1) < queueSize)
+            {
+                run_command(list[i], PIPE_MID);
+            }
+            else
+            {
+                run_command(list[i], PIPE_END);
+            }
+        }
+        break;
     }
     for (i = 0; i < 64; i++)
     {
@@ -253,25 +271,144 @@ void split_command(char *command, char **list, int *listSize)
 #endif
 }
 
-int run_command(char **list)
+int run_command(char **list, int flag)
 {
+    
+    char output_filename[1024] = {'\0'};
+    int argc = 0;
+    int i = 0;
+    //FILE *file = NULL;
+    int pipeid[2];
     int status;
+    if (pipe(pipeid) < 0)
+        error(PIPE_FUN_ERROR);
+
+#ifdef DEBUG
+    printf("debug: %d %d\n", pipeid[0], pipeid[1]);
+#endif
+    
+    //fork
     pid_t pid = fork();
+    
     if (pid < 0)
         error(FORK_ERROR);
+    
     else if (pid > 0)
     {
-        wait(&status);
-        return SUCCESS;
+        //parent
+        int is_there_an_output_redirection = 0;
+        while (list[i] != NULL)
+        {
+            switch (check_redirection(list[i]))
+            {
+            case BACKGROUND:
+                todo();
+                break;
+            case OUTPUT_REDIRECTION_W:
+                i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    //syntaxerror
+                }
+                else
+                {
+                    is_there_an_output_redirection = 1;
+                    strcpy(output_filename, list[i]);
+                }
+                break;
+            case OUTPUT_REDIRECTION_A:
+                i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    //syntaxerror
+                }
+                else
+                {
+                    is_there_an_output_redirection = 1;
+                    strcpy(output_filename, list[i]);
+                }
+                break;
+            case OUTPUT_AND_ERROR_REDIRECTION_W:
+                todo();
+                i++;
+                break;
+            case OUTPUT_AND_ERROR_REDIRECTION_A:
+                todo();
+                i++;
+                break;
+            }
+            i++;
+        }
+
+#ifdef DEBUG
+        printf("debug: command arguments without redirection options\n");
+        for (i = 0; argv[i] != NULL; i++)
+        {
+            printf("[ %s ] ", argv[i]);
+        }
+        printf("\n");
+#endif
+        
+        if (flag == NO_PIPE)
+        {
+            wait(&status);
+            return SUCCESS;
+        }
+        else if (flag == PIPE_BEGIN)
+        {
+            //close write pipe
+            close(pipeid[1]);
+            while (wait(&status) > 0)
+                ;
+            //close(STDIN_FILENO);
+            if (is_there_an_output_redirection == 0)
+                dup2(pipeid[0], STDIN_FILENO);
+            else
+            {
+                int fd = open(output_filename, O_RDONLY | O_NONBLOCK);
+                if (fd < 0)
+                {
+                    printf("error! %s\n", strerror(errno));
+                    exit(9);
+                }
+                else
+                    dup2(fd, STDIN_FILENO);
+            }
+        }
+        else if (flag == PIPE_END)
+        {
+            close(pipeid[1]);
+            while (wait(&status) > 0)
+                ;
+            return SUCCESS;
+        }
+        else if (flag == PIPE_MID)
+        {
+            close(pipeid[1]);
+            while (wait(&status) < 0)
+                ;
+            if (is_there_an_output_redirection == 0)
+                dup2(pipeid[0], STDIN_FILENO);
+            else
+            {
+                int fd = open(output_filename, O_RDONLY | O_NONBLOCK);
+                if (fd < 0)
+                {
+                    printf("error! %s\n", strerror(errno));
+                    exit(9);
+                }
+                else
+                    dup2(fd, STDIN_FILENO);
+            }
+        }
     }
     else
     {
+        //child
+        int redirection_fileno[3] = {-1, -1, -1}; //i o e
         char *argv[64] = {
             NULL,
         };
-        int argc = 0;
-        int i = 0;
-        FILE *file = NULL;
         while (list[i] != NULL)
         {
             switch (check_redirection(list[i]))
@@ -287,7 +424,7 @@ int run_command(char **list)
                     return syntax_error(list[i]);
                 }
                 else
-                    redirection_file(list[i], "r", STDIN_FILENO);
+                    redirection_fileno[0] = redirection_file(list[i], "r", STDIN_FILENO);
                 break;
             case OUTPUT_REDIRECTION_W:
                 i++;
@@ -297,7 +434,10 @@ int run_command(char **list)
                     return syntax_error(list[i]);
                 }
                 else
-                    redirection_file(list[i], "w", STDOUT_FILENO);
+                {
+                    strcpy(output_filename, list[i]);
+                    redirection_fileno[1] = redirection_file(list[i], "w", STDOUT_FILENO);
+                }
                 break;
             case OUTPUT_REDIRECTION_A:
                 i++;
@@ -307,7 +447,10 @@ int run_command(char **list)
                     return syntax_error(list[i]);
                 }
                 else
-                    redirection_file(list[i], "a", STDOUT_FILENO);
+                {
+                    strcpy(output_filename, list[i]);
+                    redirection_fileno[1] = redirection_file(list[i], "a", STDOUT_FILENO);
+                }
                 break;
             case ERROR_REDIRECTION_W:
                 i++;
@@ -317,7 +460,7 @@ int run_command(char **list)
                     return syntax_error(list[i]);
                 }
                 else
-                    redirection_file(list[i], "w", STDERR_FILENO);
+                    redirection_fileno[2] = redirection_file(list[i], "w", STDERR_FILENO);
                 break;
             case ERROR_REDIRECTION_A:
                 i++;
@@ -327,7 +470,7 @@ int run_command(char **list)
                     return syntax_error(list[i]);
                 }
                 else
-                    redirection_file(list[i], "a", STDERR_FILENO);
+                    redirection_fileno[2] = redirection_file(list[i], "a", STDERR_FILENO);
                 break;
             case OUTPUT_AND_ERROR_REDIRECTION_W:
                 todo();
@@ -345,9 +488,66 @@ int run_command(char **list)
             i++;
         }
         argv[argc] = NULL;
-        if(execvp(argv[0],argv) < 0)
+
+#ifdef DEBUG
+        printf("debug: command arguments without redirection options\n");
+        for (i = 0; argv[i] != NULL; i++)
         {
-            printf("myshell: %s\n", strerror(errno));
+            printf("[ %s ] ", argv[i]);
+        }
+        printf("\n");
+#endif
+
+        if (flag == NO_PIPE)
+        {
+            if (execvp(argv[0], argv) < 0)
+            {
+                printf("myshell: %s\n", strerror(errno));
+                clear_list(argv);
+                exit(4);
+            }
+        }
+        else if (flag == PIPE_BEGIN)
+        {
+            //close read pipe
+            close(pipeid[0]);
+            //close(STDOUT_FILENO);
+            if (redirection_fileno[1] == -1)
+                dup2(pipeid[1], STDOUT_FILENO);
+            else
+            {
+                dup2(redirection_fileno[1], STDOUT_FILENO);
+            }
+            execvp(argv[0], argv);
+            FILE *fp = fdopen(backup_stderr, "a");
+            fprintf(fp, "myshell: %s\n", strerror(errno));
+            //fclose(fp);
+            clear_list(argv);
+            exit(4);
+        }
+        else if (flag == PIPE_END)
+        {
+            close(pipeid[0]);
+            execvp(argv[0], argv);
+            FILE *fp = fdopen(backup_stderr, "a");
+            fprintf(fp, "myshell: %s\n", strerror(errno));
+            //fclose(fp);
+            clear_list(argv);
+            exit(4);
+        }
+        else if (flag == PIPE_MID)
+        {
+            close(pipeid[0]);
+            if (redirection_fileno[1] == -1)
+                dup2(pipeid[1], STDOUT_FILENO);
+            else
+            {
+                dup2(redirection_fileno[1], STDOUT_FILENO);
+            }
+            execvp(argv[0], argv);
+            FILE *fp = fdopen(backup_stderr, "a");
+            fprintf(fp, "myshell: %s\n", strerror(errno));
+            //fclose(fp);
             clear_list(argv);
             exit(4);
         }
@@ -440,7 +640,7 @@ int redirection_file(char *filename, const char *mode, int replaced)
     if (file == NULL)
     {
         printf("%s\n", strerror(errno));
-        return FAILED;
+        return -1;
     }
     else
     {
@@ -449,7 +649,7 @@ int redirection_file(char *filename, const char *mode, int replaced)
         int fno = fileno(file);
         close(replaced);
         dup2(fno, replaced);
-        return SUCCESS;
+        return fno;
     }
 }
 
