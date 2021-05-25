@@ -281,12 +281,7 @@ int run_command(char **list, int flag)
     int pipeid[2];
     int status;
     if (pipe(pipeid) < 0)
-        error(PIPE_FUN_ERROR);
-    else
-    {
-        fcntl(pipeid[0], F_SETSIZE, 1048000);
-        fcntl(pipeid[1], F_SETSIZE, 1048000);
-    }
+        error(PIPE_FUN_ERROR); 
 #ifdef DEBUG
     printf("debug: %d %d\n", pipeid[0], pipeid[1]);
 #endif
