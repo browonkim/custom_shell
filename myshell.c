@@ -1,13 +1,15 @@
 //시스템 프로그래밍/ 2021/ myshell
 //B735137/ 김형원
 
+#define _GNU_SOURCE
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdarg.h>
 #include <errno.h>
-#include <fcntl.h>
+
 
 //debug option
 //#define DEBUG
@@ -282,6 +284,10 @@ int run_command(char **list, int flag)
     int status;
     if (pipe(pipeid) < 0)
         error(PIPE_FUN_ERROR); 
+    else
+    {
+        fcntl(pipeid[0], F_SETPIPE_SZ , 1048000);
+    }
 #ifdef DEBUG
     printf("debug: %d %d\n", pipeid[0], pipeid[1]);
 #endif
