@@ -330,12 +330,28 @@ int run_command(char **list, int flag)
                 }
                 break;
             case OUTPUT_AND_ERROR_REDIRECTION_W:
-                todo();
                 i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    //syntaxerror
+                }
+                else
+                {
+                    is_there_an_output_redirection = 1;
+                    strcpy(output_filename, list[i]);
+                }
                 break;
             case OUTPUT_AND_ERROR_REDIRECTION_A:
-                todo();
                 i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    //syntaxerror
+                }
+                else
+                {
+                    is_there_an_output_redirection = 1;
+                    strcpy(output_filename, list[i]);
+                }
                 break;
             }
             i++;
