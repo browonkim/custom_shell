@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <errno.h>
+#include <fcntl.h>
 
 //debug option
 #define DEBUG
@@ -20,6 +21,29 @@
 //error Flag
 #define PIPE_FUN_ERROR 400
 #define MALLOC_ALLOCATION_ERROR 401
+#define FORK_ERROR 402
+//run Flag
+#define NO_PIPE 200
+#define ONE_PIPE_BEGIN 201
+#define ONE_PIPE_END 202
+#define MUL_PIPE_BEGIN 203
+#define MUL_PIPE_MID 204
+#define MUL_PIPE_END 205
+
+//option Flag
+#define NO_STRING_RETURN_NULL 0
+#define NOT_OPTION 100
+#define BACKGROUND 101
+#define INPUT_REDIRECTION 102
+#define OUTPUT_REDIRECTION_W 103
+#define OUTPUT_REDIRECTION_A 104
+#define ERROR_REDIRECTION_W 105
+#define ERROR_REDIRECTION_A 106
+#define OUTPUT_AND_ERROR_REDIRECTION_W 107
+#define OUTPUT_AND_ERROR_REDIRECTION_A 108
+
+#define SUCCESS 1
+#define FAILED 0
 
 enum boolean
 {
@@ -33,17 +57,36 @@ struct range
     int end;
 } typedef range;
 
-typedef int todo;
+FILE *opened_files[64] = {
+    NULL,
+};
+int num_of_opened;
+void close_all_files();
+
+int backup_stdin;
+int backup_stdout;
+int backup_stderr;
+
+void todo()
+{
+    printf("NOT IMPLEMENTED YET!\n");
+}
 
 //functions
+int syntax_error(char *string);
+void exception_cleanse(char** list, int listSize);
 void get_command(char *buffer, size_t bufferSize);
-void parsing_pipe(char *buffer, char **list, int *listSize);
+void split_pipe(char *buffer, char **list, int *listSize);
 void tokenizeCommand(char *buffer, char **list, int *listSize);
-void split_command(char *command, char **list);
-void run_command(char **list, int option, int w_fd, int r_fd);
+void split_command(char *command, char **list, int *listSize);
+int run_command(char **list);
+void parse_command();
 void pop_pipe(char **pipeQueue, int queueSize);
+void execute_command(char **list, char option);
 void clear_list(char **list);
 void error(int errorFlag);
+int check_redirection(char *string);
+int redirection_file(char *filename, const char *mode, int replaced);
 
 int main(void)
 {
@@ -60,12 +103,24 @@ int main(void)
 
     while (infinite)
     {
+        backup_stdin = dup(STDIN_FILENO);
+        backup_stdout = dup(STDOUT_FILENO);
+        backup_stderr = dup(STDERR_FILENO);
+
         memset(commandBuffer, '\0', commandBufSize);
         printf("$ ");
         get_command(commandBuffer, commandBufSize);
-        parsing_pipe(commandBuffer, pipeQueue, &pipeSize);
+        split_pipe(commandBuffer, pipeQueue, &pipeSize);
         pop_pipe(pipeQueue, pipeSize);
         clear_list(pipeQueue);
+        close_all_files();
+
+        dup2(backup_stdin, STDIN_FILENO);
+        dup2(backup_stdout, STDOUT_FILENO);
+        dup2(backup_stderr, STDERR_FILENO);
+        close(backup_stdin);
+        close(backup_stdout);
+        close(backup_stderr);
     }
     free(pipeQueue);
 }
@@ -89,29 +144,6 @@ void get_command(char *buffer, size_t bufferSize)
 #endif
 }
 
-void tokenizeCommand(char *buffer, char **list, int *listSize)
-{
-    int i;
-    char *token = strtok(buffer, " \n");
-    *listSize = 0;
-    while (token != NULL)
-    {
-        list[*listSize] = (char *)malloc(sizeof(char) * (strlen(token) + 1));
-        strcpy(list[(*listSize)], token);
-        (*listSize)++;
-        token = strtok(NULL, " \n");
-    }
-    list[*listSize] = NULL;
-
-#ifdef DEBUG
-    for (i = 0; i < *listSize; i++)
-    {
-        printf("%s ", list[i]);
-    }
-    printf("token size = %d\n", *listSize);
-#endif
-}
-
 void clear_list(char **list)
 {
     int i = 0;
@@ -123,7 +155,7 @@ void clear_list(char **list)
     }
 }
 
-void parsing_pipe(char *buffer, char **pipeQueue, int *queueSize)
+void split_pipe(char *buffer, char **pipeQueue, int *queueSize)
 {
     int i;
     *queueSize = 0;
@@ -148,44 +180,44 @@ void parsing_pipe(char *buffer, char **pipeQueue, int *queueSize)
 void pop_pipe(char **pipeQueue, int queueSize)
 {
     int i;
-    int fdList[MAXSTRING][2];
-    int until = queueSize - 1;
-    char *list[32][32] = {{
+
+    char *list[64][64] = {{
         NULL,
     }};
-    for (i = 0; i < until; i++)
-    {
-        if (pipe(fdList[i]) < 0)
-            error(PIPE_FUN_ERROR);
-    }
+    int listSize = 0;
     for (i = 0; i < queueSize; i++)
     {
-        //char *** list = [a["","","",""] | b["","","",""] | c["","","",""], ...]
-        split_command(pipeQueue[i], list[i]);
+        split_command(pipeQueue[i], list[i], &listSize);
+        if (listSize == 0)
+        {
+            if (i == 0)
+            {
+                printf("myshell: syntax error near by |\n");
+                int j;
+                for (j = 0; j < 64; j++)
+                {
+                    exception_cleanse(list[j], 64);
+                }
+                return;
+            }
+            else
+            {
+                int j;
+                for (j = 0; j < 64; j++)
+                {
+                    exception_cleanse(list[j], 64);
+                }
+                return;
+            }
+        }
+        //일단 non emplementation이라고 하고 return 시켜버리기
+        //즉 어떤 경우에도 listSize는 공백이 아닌 어떤 문자를 가지고 있어야한다는 뜻
     }
-    for (i = 0; i < queueSize; i++)
-    {
-        if (i == 0 && (i + 1) == queueSize)
-        {
-            //no pipe. just run
-            run_command(list[i], 0, -1, -1); //no pipe
-        }
-        else if (i == 0 && (i + 1) < queueSize)
-        {
-            pipe(fdList[i]);
-            run_command(list[i], 1, fdList[i][0], -1); //just write pipe
-        }
-        else if ((i + 1) == queueSize)
-        {
-            run_command(list[i], 2, -1, fdList[i - 1][1]); //just read Pipe
-        }
-        else if ((i + 1) < queueSize)
-        {
-            pipe(fdList[i]);
-            run_command(list[i], 3, fdList[i][0], fdList[i - 1][1]); //read Pipe and write Pipe
-        }
+    for( i = 0; i < queueSize ; i++)
+    {   
+        run_command(list[i]);
     }
-    for (i = 0; i < 32; i++)
+    for (i = 0; i < 64; i++)
     {
         if (list[i] == NULL)
             break;
@@ -193,22 +225,23 @@ void pop_pipe(char **pipeQueue, int queueSize)
     }
 }
 
-void split_command(char *command, char **list)
+void split_command(char *command, char **list, int *listSize)
 {
-    int i = 0;
+    int i; //for debug
+    *listSize = 0;
     char *token = strtok(command, " \n");
     while (token != NULL)
     {
-        list[i] = (char *)malloc(sizeof(char) * strlen(token));
-        if (list[i] == NULL)
+        list[*listSize] = (char *)malloc(sizeof(char) * strlen(token));
+        if (list[*listSize] == NULL)
         {
             error(MALLOC_ALLOCATION_ERROR);
         }
-        strcpy(list[i], token);
-        i++;
+        strcpy(list[*listSize], token);
+        (*listSize)++;
         token = strtok(NULL, " \n");
     }
-    list[i] = NULL;
+    list[*listSize] = NULL;
 #ifdef DEBUG
     i = 0;
     while (list[i] != NULL)
@@ -220,70 +253,141 @@ void split_command(char *command, char **list)
 #endif
 }
 
-void run_command(char **list, int option, int w_fd, int r_fd)
+int run_command(char **list)
 {
-    int i = 0;
-    while (list[i] != NULL)
+    int status;
+    pid_t pid = fork();
+    if (pid < 0)
+        error(FORK_ERROR);
+    else if (pid > 0)
     {
-        int j = 0;
-        char c;
-        while ((c = list[i][j]) != '\0')
-        {
-            if (c == '<')
-            {
-                // <
-                // <0
-            }
-            else if (c == '>')
-            {
-                //> 만약 뒤에 원소가 있다면 output redirection 구현하기
-                //&> error redirection 이랑 output redirection 이랑 같은것을 가르키기
-                //2> error 를 리디렉션해주기
-                //>& &>랑 똑같이 구현해주기
-                //>> 이어쓰기
-                //&n>
-                //>&n
-            }
-            else if (c == '&')
-            {
-                // & 만 허용됨 string전체가 &여야만함
-            }
-            j++;
-        }
-        i++;
-    }
-    switch (option)
-    {
-    case 0:
-        //no action
-        break;
-    case 1:
-        //output만 옮겨주기
-        break;
-    case 2:
-        //input만 받아오기
-        break;
-    case 3:
-        //input받아오고 output도 옮겨주기
-        break;
-    }
-    pid_t pid;
-    if ((pid = fork()) == 0)
-    {
-        if (execvp(list[0], list) < 0)
-        {
-#ifdef ERRNO_CHECK
-            fprintf(stderr, "%s\n", strerror(errno));
-#endif
-            fprintf(stderr, "myshell: %s: command not found\n", list[0]);
-            exit(0);
-        }
+        wait(&status);
+        return SUCCESS;
     }
     else
     {
-        int status, waitPid;
-        waitPid = wait(&status);
+        char *argv[64] = {
+            NULL,
+        };
+        int argc = 0;
+        int i = 0;
+        FILE *file = NULL;
+        while (list[i] != NULL)
+        {
+            switch (check_redirection(list[i]))
+            {
+            case BACKGROUND:
+                todo();
+                break;
+            case INPUT_REDIRECTION:
+                i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    exception_cleanse(argv, 64);
+                    return syntax_error(list[i]);
+                }
+                else
+                    redirection_file(list[i], "r", STDIN_FILENO);
+                break;
+            case OUTPUT_REDIRECTION_W:
+                i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    exception_cleanse(argv, 64);
+                    return syntax_error(list[i]);
+                }
+                else
+                    redirection_file(list[i], "w", STDOUT_FILENO);
+                break;
+            case OUTPUT_REDIRECTION_A:
+                i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    exception_cleanse(argv, 64);
+                    return syntax_error(list[i]);
+                }
+                else
+                    redirection_file(list[i], "a", STDOUT_FILENO);
+                break;
+            case ERROR_REDIRECTION_W:
+                i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    exception_cleanse(argv, 64);
+                    return syntax_error(list[i]);
+                }
+                else
+                    redirection_file(list[i], "w", STDERR_FILENO);
+                break;
+            case ERROR_REDIRECTION_A:
+                i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    exception_cleanse(argv, 64);
+                    return syntax_error(list[i]);
+                }
+                else
+                    redirection_file(list[i], "a", STDERR_FILENO);
+                break;
+            case OUTPUT_AND_ERROR_REDIRECTION_W:
+                todo();
+                i++;
+                break;
+            case OUTPUT_AND_ERROR_REDIRECTION_A:
+                todo();
+                i++;
+                break;
+            default:
+                argv[argc] = (char *)malloc(sizeof(char) * strlen(list[i]));
+                strcpy(argv[argc], list[i]);
+                argc++;
+            }
+            i++;
+        }
+        argv[argc] = NULL;
+        if(execvp(argv[0],argv) < 0)
+        {
+            printf("myshell: %s\n", strerror(errno));
+            clear_list(argv);
+            exit(4);
+        }
     }
+}
+
+int check_redirection(char *string)
+{
+    if (string == NULL)
+        return NO_STRING_RETURN_NULL;
+    if (strcmp(string, "&") == 0)
+        return BACKGROUND;
+    else if (strcmp(string, "&>") == 0)
+        return OUTPUT_AND_ERROR_REDIRECTION_W;
+    else if (strcmp(string, ">&") == 0)
+        return OUTPUT_AND_ERROR_REDIRECTION_W;
+    else if (strcmp(string, "2>") == 0)
+        return ERROR_REDIRECTION_W;
+    else if (strcmp(string, ">2") == 0)
+        return ERROR_REDIRECTION_W;
+    else if (strcmp(string, ">>") == 0)
+        return OUTPUT_REDIRECTION_A;
+    else if (strcmp(string, "2>>") == 0)
+        return ERROR_REDIRECTION_A;
+    else if (strcmp(string, "&>>") == 0)
+        return OUTPUT_AND_ERROR_REDIRECTION_A;
+    else if (strcmp(string, "<") == 0)
+        return INPUT_REDIRECTION;
+    else if (strcmp(string, "<0") == 0)
+        return INPUT_REDIRECTION;
+    else if (strcmp(string, "0<") == 0)
+        return INPUT_REDIRECTION;
+    else if (strcmp(string, ">") == 0)
+        return OUTPUT_REDIRECTION_W;
+    else if (strcmp(string, "1>") == 0)
+        return OUTPUT_REDIRECTION_W;
+    else if (strcmp(string, "1>>") == 0)
+        return OUTPUT_REDIRECTION_A;
+    else
+        return NOT_OPTION;
 }
 
 void error(int errorFlag)
@@ -301,5 +405,63 @@ void error(int errorFlag)
     default:
         fprintf(stderr, "myshell: unknown error!\n");
         exit(5);
+    }
+}
+
+void close_all_files()
+{
+    int i;
+    for (i = 0; i < 64; i++)
+    {
+        if (opened_files[i] == NULL)
+            continue;
+        else
+        {
+            fclose(opened_files[i]);
+            opened_files[i] = NULL;
+        }
+    }
+    num_of_opened = 0;
+}
+
+int syntax_error(char *string)
+{
+    char *temp = string;
+    if (temp == NULL)
+        temp = "newline";
+    printf("myshell: syntax error near unexpected token '%s'\n", temp);
+    return FAILED;
+}
+
+int redirection_file(char *filename, const char *mode, int replaced)
+{
+    FILE *file;
+    file = fopen(filename, mode);
+    if (file == NULL)
+    {
+        printf("%s\n", strerror(errno));
+        return FAILED;
+    }
+    else
+    {
+        opened_files[num_of_opened] = file;
+        num_of_opened++;
+        int fno = fileno(file);
+        close(replaced);
+        dup2(fno, replaced);
+        return SUCCESS;
+    }
+}
+
+void exception_cleanse(char **list, int listSize)
+{
+    int i;
+    for (i = 0; i < listSize; i++)
+    {
+        if (list[i] != NULL)
+        {
+            free(list[i]);
+            list[i] = NULL;
+        }
     }
 }
