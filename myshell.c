@@ -273,7 +273,7 @@ void split_command(char *command, char **list, int *listSize)
 
 int run_command(char **list, int flag)
 {
-    
+
     char output_filename[1024] = {'\0'};
     int argc = 0;
     int i = 0;
@@ -286,23 +286,24 @@ int run_command(char **list, int flag)
 #ifdef DEBUG
     printf("debug: %d %d\n", pipeid[0], pipeid[1]);
 #endif
-    
+
     //fork
     pid_t pid = fork();
-    
+
     if (pid < 0)
         error(FORK_ERROR);
-    
+
     else if (pid > 0)
     {
         //parent
         int is_there_an_output_redirection = 0;
+        int is_Background = 0;
         while (list[i] != NULL)
         {
             switch (check_redirection(list[i]))
             {
             case BACKGROUND:
-                todo();
+                is_Background = 1;
                 break;
             case OUTPUT_REDIRECTION_W:
                 i++;
@@ -348,18 +349,22 @@ int run_command(char **list, int flag)
         }
         printf("\n");
 #endif
-        
+
         if (flag == NO_PIPE)
         {
-            wait(&status);
+            if (is_Background == 0)
+                wait(&status);
             return SUCCESS;
         }
         else if (flag == PIPE_BEGIN)
         {
             //close write pipe
             close(pipeid[1]);
-            while (wait(&status) > 0)
-                ;
+            if (is_Background)
+            {
+                while (wait(&status) > 0)
+                    ;
+            }
             //close(STDIN_FILENO);
             if (is_there_an_output_redirection == 0)
                 dup2(pipeid[0], STDIN_FILENO);
@@ -369,7 +374,7 @@ int run_command(char **list, int flag)
                 if (fd < 0)
                 {
                     printf("error! %s\n", strerror(errno));
-                    exit(9);
+                    return FAILED;
                 }
                 else
                     dup2(fd, STDIN_FILENO);
@@ -378,15 +383,21 @@ int run_command(char **list, int flag)
         else if (flag == PIPE_END)
         {
             close(pipeid[1]);
-            while (wait(&status) > 0)
-                ;
+            if (is_Background == 0)
+            {
+                while (wait(&status) > 0)
+                    ;
+            }
             return SUCCESS;
         }
         else if (flag == PIPE_MID)
         {
             close(pipeid[1]);
-            while (wait(&status) < 0)
-                ;
+            if (is_Background == 0)
+            {
+                while (wait(&status) < 0)
+                    ;
+            }
             if (is_there_an_output_redirection == 0)
                 dup2(pipeid[0], STDIN_FILENO);
             else
@@ -395,7 +406,7 @@ int run_command(char **list, int flag)
                 if (fd < 0)
                 {
                     printf("error! %s\n", strerror(errno));
-                    exit(9);
+                    return FAILED;
                 }
                 else
                     dup2(fd, STDIN_FILENO);
@@ -414,7 +425,6 @@ int run_command(char **list, int flag)
             switch (check_redirection(list[i]))
             {
             case BACKGROUND:
-                todo();
                 break;
             case INPUT_REDIRECTION:
                 i++;
@@ -444,7 +454,7 @@ int run_command(char **list, int flag)
                 if (check_redirection(list[i]) != NOT_OPTION)
                 {
                     exception_cleanse(argv, 64);
-                    return syntax_error(list[i]);
+                    exit(syntax_error(list[i]));
                 }
                 else
                 {
@@ -457,7 +467,7 @@ int run_command(char **list, int flag)
                 if (check_redirection(list[i]) != NOT_OPTION)
                 {
                     exception_cleanse(argv, 64);
-                    return syntax_error(list[i]);
+                    exit(syntax_error(list[i]));
                 }
                 else
                     redirection_fileno[2] = redirection_file(list[i], "w", STDERR_FILENO);
@@ -467,18 +477,36 @@ int run_command(char **list, int flag)
                 if (check_redirection(list[i]) != NOT_OPTION)
                 {
                     exception_cleanse(argv, 64);
-                    return syntax_error(list[i]);
+                    exit(syntax_error(list[i]));
                 }
                 else
                     redirection_fileno[2] = redirection_file(list[i], "a", STDERR_FILENO);
                 break;
             case OUTPUT_AND_ERROR_REDIRECTION_W:
-                todo();
                 i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    exception_cleanse(argv, 64);
+                    exit(syntax_error(list[i]));
+                }
+                else
+                {
+                    redirection_fileno[1] = redirection_file(list[i], "w", STDOUT_FILENO);
+                    redirection_fileno[2] = redirection_file(list[i], "w", STDERR_FILENO);
+                }
                 break;
             case OUTPUT_AND_ERROR_REDIRECTION_A:
-                todo();
                 i++;
+                if (check_redirection(list[i]) != NOT_OPTION)
+                {
+                    exception_cleanse(argv, 64);
+                    exit(syntax_error(list[i]));
+                }
+                else
+                {
+                    redirection_fileno[1] = redirection_file(list[i], "a", STDOUT_FILENO);
+                    redirection_fileno[2] = redirection_file(list[i], "a", STDERR_FILENO);
+                }
                 break;
             default:
                 argv[argc] = (char *)malloc(sizeof(char) * strlen(list[i]));
@@ -552,6 +580,7 @@ int run_command(char **list, int flag)
             exit(4);
         }
     }
+    return SUCCESS;
 }
 
 int check_redirection(char *string)
