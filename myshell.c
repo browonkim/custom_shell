@@ -376,7 +376,7 @@ int run_command(char **list, int flag)
         {
             //close write pipe
             close(pipeid[1]);
-            if (is_Background)
+            if (is_Background == 0)
             {
                 while (wait(&status) > 0)
                     ;
@@ -389,7 +389,7 @@ int run_command(char **list, int flag)
                 int fd = open(output_filename, O_RDONLY | O_NONBLOCK);
                 if (fd < 0)
                 {
-                    printf("error! %s\n", strerror(errno));
+                    printf("dup error! %s\n", strerror(errno));
                     return FAILED;
                 }
                 else
@@ -421,7 +421,7 @@ int run_command(char **list, int flag)
                 int fd = open(output_filename, O_RDONLY | O_NONBLOCK);
                 if (fd < 0)
                 {
-                    printf("error! %s\n", strerror(errno));
+                    printf("dup error! %s\n", strerror(errno));
                     return FAILED;
                 }
                 else
