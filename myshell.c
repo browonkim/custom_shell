@@ -11,6 +11,7 @@
 
 //debug option
 //#define DEBUG
+#define _GNU_SORUCE
 #define _CRT_SECURE_NO_WARNINGS
 //constant
 #define infinite 1
@@ -282,7 +283,10 @@ int run_command(char **list, int flag)
     int status;
     if (pipe(pipeid) < 0)
         error(PIPE_FUN_ERROR);
-
+    else
+    {
+        fcntl(pipeid[0], F_SETPIPE_SZ, 1048576);
+    }
 #ifdef DEBUG
     printf("debug: %d %d\n", pipeid[0], pipeid[1]);
 #endif
